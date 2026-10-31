@@ -16,7 +16,7 @@
 
 群晖 Chat 接入、微信/QQ 自动采集、手写成绩表自动结构化、错题本、在线 AI、拖入及剪贴板粘贴、托盘及开机启动、应用内备份恢复、完整记录编辑删除。
 
-Windows EXE 构建流程已经提供，但本交付没有附带已构建或实机验证的 EXE，也没有安装器。Windows 包默认不包含 Tesseract 引擎和中文字库；没有它们仍可录入成绩、上传图片、人工确认，OCR 会显示未运行。实现完整免配置 OCR 后才能作为面向普通家庭的正式版。
+Windows 安装包 installer.1 已生成，无需另装 Python。已在 GitHub Windows 环境完成核心、打包后核心、安装、进程启动与卸载检查；尚未在用户个人 Windows 10/11 电脑完成交互验收。安装包默认不含 Tesseract 引擎和中文字库，没有它们仍可录入成绩、上传图片、人工确认。详见 Windows 使用说明。
 
 ## 选择版本
 
@@ -31,7 +31,7 @@ Windows EXE 构建流程已经提供，但本交付没有附带已构建或实�
 
 ## 开发运行
 
-Python 3.10 以上；执行 `python -m pip install -r requirements.txt` 后运行 `python app.py`。默认入口 http://127.0.0.1:8765，默认示例姓名可通过 TRACKER_STUDENT 修改。数据默认位于程序旁的 data 目录。Windows 用户应使用 windows_launcher.py，以便将数据保存到个人用户目录。
+Python 3.10 以上；执行 `python -m pip install -r requirements.txt` 后运行 `python app.py`。默认入口 `http://127.0.0.1:8765/`，默认示例姓名可通过 TRACKER_STUDENT 修改。数据默认位于程序旁的 data 目录。Windows 用户应使用 windows_launcher.py，以便将数据保存到个人用户目录。
 
 开发者运行 `python smoke_test.py` 可检查共享核心的鉴权、录入、确认、导出与校验。
 
