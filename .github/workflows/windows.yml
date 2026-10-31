@@ -1,20 +1,111 @@
-name: Build Windows preview
+name: Build Windows installer
 on:
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   build:
     runs-on: windows-latest
-    permissions:
-      contents: read
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -r requirements.txt pyinstaller
-      - run: python smoke_test.py
-      - run: python -m PyInstaller --noconfirm --clean --onedir --windowed --name EDULearningAssistant --hidden-import app --collect-all PIL --collect-all pytesseract windows_launcher.py
+      - name: Install build dependencies
+        run: python -m pip install -r requirements.txt pyinstaller==6.16.0 pip-licenses
+      - name: Test core on Windows
+        run: python smoke_test.py
+      - name: Build standalone application
+        run: python -m PyInstaller --noconfirm --clean --onedir --windowed --name EDULearningAssistant --hidden-import app --collect-all PIL --collect-all pytesseract windows_launcher.py
+      - name: Test frozen core
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --console --name EDUSelfTest --hidden-import app smoke_test.py
+          if ($LASTEXITCODE -ne 0) { throw "Self-test build failed" }
+          & ./dist/EDUSelfTest.exe
+          if ($LASTEXITCODE -ne 0) { throw "Frozen self-test failed" }
+      - name: Prepare notices and installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force output | Out-Null
+          Copy-Item LICENSE dist/EDULearningAssistant/LICENSE.txt
+          python -m pip freeze | Out-File -Encoding utf8 dist/EDULearningAssistant/BUILD_DEPENDENCIES.txt
+          pip-licenses --with-license-file --no-license-path --output-file=dist/EDULearningAssistant/THIRD_PARTY_LICENSES.txt
+          @'
+          EDU 学习助手 Windows 安装版
+          软件：0.2.0-preview.1；安装包：installer.1；数据库：schema-1
+          适用 Windows 10/11 64位。无需安装 Python 或群晖。
+          安装后从开始菜单打开，填写孩子姓名，点击启动。
+          保持启动窗口打开，关闭它会停止服务。
+          本机浏览器访问，端口由系统分配，启动窗口显示实际地址。
+          数据：%LOCALAPPDATA%\EDULearningAssistant
+          配置：上述目录 settings.json；数据库 records.sqlite3；图片 uploads。
+          备份：先关闭程序，再复制完整数据目录。卸载保留学习数据。
+          OCR 引擎和中文字库暂未内置；可录成绩、上传原图、人工确认。
+          本版未做代码签名，首次运行可能显示发布者未知。
+          已做自动构建、核心测试及安装/启动/卸载检查，仍为预览版。
+          源码：https://github.com/caominzhang/edu-learning-assistant
+          '@ | Set-Content -Encoding utf8 output/使用说明.txt
+          Copy-Item output/使用说明.txt dist/EDULearningAssistant/使用说明.txt
+          @'
+          [Setup]
+          AppId=EDULearningAssistant
+          AppName=EDU 学习助手
+          AppVersion=0.2.0.1
+          AppVerName=EDU 学习助手 0.2.0-preview.1 (installer.1)
+          AppPublisher=EDU Learning Assistant contributors
+          AppPublisherURL=https://github.com/caominzhang/edu-learning-assistant
+          DefaultDirName={localappdata}\Programs\EDULearningAssistant
+          DefaultGroupName=EDU 学习助手
+          PrivilegesRequired=lowest
+          ArchitecturesAllowed=x64compatible
+          ArchitecturesInstallIn64BitMode=x64compatible
+          OutputDir=output
+          OutputBaseFilename=EDU_Learning_Assistant_0.2.0-preview.1_Setup_x64
+          Compression=lzma2
+          SolidCompression=yes
+          WizardStyle=modern
+          UninstallDisplayIcon={app}\EDULearningAssistant.exe
+          CloseApplications=yes
+          [Files]
+          Source: "dist\EDULearningAssistant\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+          [Tasks]
+          Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
+          [Icons]
+          Name: "{group}\EDU Learning Assistant"; Filename: "{app}\EDULearningAssistant.exe"
+          Name: "{autodesktop}\EDU Learning Assistant"; Filename: "{app}\EDULearningAssistant.exe"; Tasks: desktopicon
+          [Run]
+          Filename: "{app}\EDULearningAssistant.exe"; Description: "Launch EDU Learning Assistant"; Flags: nowait postinstall skipifsilent
+          '@ | Set-Content -Encoding utf8 installer.iss
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup install failed" }
+          }
+          & $iscc installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
+      - name: Test installation startup and uninstall
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem output/*Setup_x64.exe).FullName
+          $target = Join-Path $env:RUNNER_TEMP 'EDUInstallTest'
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Install failed" }
+          $exe = Join-Path $target 'EDULearningAssistant.exe'
+          if (!(Test-Path $exe)) { throw "Installed EXE missing" }
+          $app = Start-Process $exe -PassThru
+          Start-Sleep -Seconds 5
+          if ($app.HasExited) { throw "Application exited at startup" }
+          Stop-Process -Id $app.Id -Force
+          $uninstall = Start-Process (Join-Path $target 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Uninstall failed" }
+          if (Test-Path $exe) { throw "Uninstall left EXE" }
+          "PASS: Windows core, frozen core, install, startup, uninstall. Commit: $env:GITHUB_SHA" | Set-Content -Encoding utf8 output/BUILD_VALIDATION.txt
+          Get-FileHash $setup -Algorithm SHA256 | Format-List | Out-File -Encoding utf8 output/SHA256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: EDULearningAssistant-Windows-preview
-          path: dist/EDULearningAssistant/
+          name: EDU-Learning-Assistant-Windows-Installer
+          path: output/
+          if-no-files-found: error
+          retention-days: 30
