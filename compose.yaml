@@ -1,0 +1,15 @@
+services:
+  edu-learning-assistant:
+    build: .
+    image: edu-learning-assistant:0.2.0-preview.1
+    container_name: edu-learning-assistant
+    restart: unless-stopped
+    ports:
+      - "${TRACKER_BIND_IP:-127.0.0.1}:${TRACKER_PORT:-8765}:8765"
+    environment:
+      TRACKER_HOST: 0.0.0.0
+      TRACKER_DATA: /app/data
+      TRACKER_STUDENT: ${TRACKER_STUDENT:?请填写关注学生姓名}
+      TRACKER_PASSWORD: ${TRACKER_PASSWORD:?请填写至少16位访问密码}
+    volumes:
+      - ./data:/app/data
